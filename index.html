@@ -554,12 +554,13 @@
             </ul>
           </div>
           <form class="form" id="contactForm" novalidate>
-            <div class="field"><label for="f-name">Your name</label><input id="f-name" name="name" type="text" autocomplete="name" required></div>
-            <div class="field"><label for="f-email">Your email</label><input id="f-email" name="email" type="email" autocomplete="email" required></div>
-            <div class="field"><label for="f-subject">Subject</label><input id="f-subject" name="subject" type="text"></div>
-            <div class="field"><label for="f-message">Message</label><textarea id="f-message" name="message" rows="5" required></textarea></div>
-            <button class="btn btn--signal btn--full" type="submit">Write my email</button>
-            <p class="form__note" id="formNote" role="status">Opens your email app with this message ready to send.</p>
+            <div class="field"><label for="f-name">Your name</label><input id="f-name" name="name" type="text" autocomplete="name" maxlength="100" required></div>
+            <div class="field"><label for="f-email">Your email</label><input id="f-email" name="email" type="email" autocomplete="email" maxlength="254" required></div>
+            <div class="field"><label for="f-subject">Subject</label><input id="f-subject" name="subject" type="text" maxlength="150"></div>
+            <div class="field"><label for="f-message">Message</label><textarea id="f-message" name="message" rows="5" maxlength="5000" required></textarea></div>
+            <div class="field--hidden" aria-hidden="true"><label for="f-website">Leave this empty</label><input id="f-website" name="website" type="text" tabindex="-1" autocomplete="off"></div>
+            <button class="btn btn--signal btn--full" type="submit">Send message</button>
+            <p class="form__note" id="formNote" role="status">I'll reply to the email address you enter.</p>
           </form>
         </div>
       </div>

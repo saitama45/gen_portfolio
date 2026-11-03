@@ -49,16 +49,47 @@
     history.replaceState(null, '', a.getAttribute('href'));
   });
 
-  // Contact form: this is a static site, so it hands the message to the visitor's email app.
+  // Contact form: sends through contact.php. If that can't be reached, the visitor's message
+  // stays in the form and they get a link that opens it in their own email app instead.
   const form = $('#contactForm');
-  form.addEventListener('submit', e => {
+  const formNote = $('#formNote');
+  const sendButton = $('button[type="submit"]', form);
+  const formLoaded = Date.now();
+  const emailAppLink = () => {
+    const f = form.elements;
+    const subject = `[Portfolio Website] ${f.subject.value.trim() || `New inquiry from ${f.name.value.trim()}`}`;
+    const body = `${f.message.value}\n\nFrom: ${f.name.value} <${f.email.value}>`;
+    const link = document.createElement('a');
+    link.href = `mailto:gmcloud45@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    link.textContent = 'Send it from your email app instead';
+    return link;
+  };
+  form.addEventListener('submit', async e => {
     e.preventDefault();
     if (!form.reportValidity()) return;
-    const f = form.elements;
-    const subject = f.subject.value.trim() || `Project enquiry from ${f.name.value.trim()}`;
-    const body = `${f.message.value}\n\nFrom: ${f.name.value} <${f.email.value}>`;
-    location.href = `mailto:gmcloud45@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    $('#formNote').textContent = 'Your email app should now be open with your message. If nothing happened, write to gmcloud45@gmail.com directly.';
+    sendButton.disabled = true;
+    sendButton.textContent = 'Sending...';
+    formNote.textContent = 'Sending your message...';
+    const data = new FormData(form);
+    data.append('elapsed', Date.now() - formLoaded);
+    try {
+      const response = await fetch('contact.php', { method: 'POST', body: data, headers: { Accept: 'application/json' } });
+      const result = await response.json();
+      if (result.ok) {
+        form.reset();
+        formNote.textContent = "Thanks, your message was sent. I'll reply to the email address you entered.";
+      } else if (response.status === 400) {
+        formNote.textContent = result.error;
+      } else {
+        throw new Error(result.error);
+      }
+    } catch {
+      formNote.textContent = "Sorry, your message didn't send. ";
+      formNote.appendChild(emailAppLink());
+    } finally {
+      sendButton.disabled = false;
+      sendButton.textContent = 'Send message';
+    }
   });
 
   // Project detail dialog

@@ -467,6 +467,9 @@ h2 {
 .field input:focus, .field textarea:focus { outline: none; border-color: var(--signal); }
 .field textarea { resize: vertical; }
 .form__note { margin-top: 12px; font-size: .84rem; color: var(--muted-dark); }
+.form__note a { color: var(--on-dark); font-weight: 600; }
+.form .btn:disabled { opacity: .65; cursor: wait; }
+.field--hidden { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 
 /* Footer */
 .ftr { position: relative; z-index: 2; background: var(--ink); color: var(--muted-dark); padding-block: 26px; font-size: .88rem; }

@@ -27,9 +27,12 @@ jobs:
       - name: Check the page's links and images
         run: node .github/scripts/check-site.mjs
 
+      - name: Check contact form syntax
+        run: php -l contact.php
+
       # index.old.html is the backup of the previous design, kept in the repo but not published
       - name: Create package
-        run: tar -cf "$RUNNER_TEMP/package.tar" --exclude=./.git --exclude=./.github --exclude=./index.old.html .
+        run: tar -cf "$RUNNER_TEMP/package.tar" --exclude=./.git --exclude=./.github --exclude=./.gitignore --exclude=./index.old.html .
 
       - name: Upload package
         uses: actions/upload-artifact@v4
@@ -69,6 +72,26 @@ jobs:
           New-Item -ItemType Directory -Force $release | Out-Null
           & "$env:SystemRoot\System32\tar.exe" -xf "$env:RUNNER_TEMP\package.tar" -C $release
           if ($LASTEXITCODE -ne 0) { throw "tar failed with exit code $LASTEXITCODE" }
+
+      # The mail password is written into the package here, never into the repo.
+      # IIS refuses to serve App_Data, and the file is PHP that prints nothing if it ever runs.
+      - name: Write contact form config
+        shell: pwsh
+        env:
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+        run: |
+          if (-not $env:MAIL_PASSWORD) {
+            Write-Output "::warning::Repository secret MAIL_PASSWORD is not set, so the contact form falls back to the visitor's email app."
+            exit 0
+          }
+          # Google displays app passwords with spaces, which aren't part of the password
+          $password = $env:MAIL_PASSWORD -replace '\s', ''
+          Write-Output "::add-mask::$password"
+          $folder = "$env:RUNNER_TEMP\release\App_Data"
+          New-Item -ItemType Directory -Force $folder | Out-Null
+          $escaped = $password.Replace('\', '\\').Replace("'", "\'")
+          # WriteAllText adds no byte order mark, which PHP would otherwise print before the opening tag
+          [IO.File]::WriteAllText("$folder\contact-config.php", "<?php return ['password' => '$escaped'];`n")
 
       - name: Deploy and verify
         shell: pwsh
@@ -140,4 +163,9 @@ jobs:
           if ($page.Content -notmatch 'Gener Magbanua') { throw "The home page at $base does not look like this site." }
           $image = Invoke-WebRequest "$base/assets/img/portrait.webp" -UseBasicParsing -MaximumRetryCount 5 -RetryIntervalSec 6
           if ($image.Headers['Content-Type'] -notmatch 'image/webp') { throw "portrait.webp came back as $($image.Headers['Content-Type'])." }
-          Write-Host "Live site is up at $base"
+          # PHP is running if the form endpoint answers a GET with its own 405, and the config must stay out of reach
+          $endpoint = Invoke-WebRequest "$base/contact.php" -UseBasicParsing -SkipHttpErrorCheck
+          if ($endpoint.StatusCode -ne 405) { throw "contact.php answered $($endpoint.StatusCode), so PHP may not be running. The form will fall back to the visitor's email app." }
+          $config = Invoke-WebRequest "$base/App_Data/contact-config.php" -UseBasicParsing -SkipHttpErrorCheck
+          if ($config.StatusCode -eq 200 -and $config.RawContentLength -gt 0) { throw 'App_Data/contact-config.php can be read from the web.' }
+          Write-Host "Live site and contact form are up at $base"

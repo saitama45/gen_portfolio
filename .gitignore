@@ -1,0 +1,2 @@
+# Holds the mail password on the server. Written at deploy time, never committed.
+App_Data/

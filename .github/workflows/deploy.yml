@@ -1,0 +1,143 @@
+name: Check and deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check site and build package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check JavaScript syntax
+        run: node --check assets/js/site.js
+
+      - name: Check the page's links and images
+        run: node .github/scripts/check-site.mjs
+
+      # index.old.html is the backup of the previous design, kept in the repo but not published
+      - name: Create package
+        run: tar -cf "$RUNNER_TEMP/package.tar" --exclude=./.git --exclude=./.github --exclude=./index.old.html .
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: ${{ runner.temp }}/package.tar
+          compression-level: 0
+          retention-days: 1
+
+  deploy:
+    name: Deploy with Web Deploy
+    needs: check
+    runs-on: windows-latest
+    # Never run two deploys against the server at the same time
+    concurrency:
+      group: deploy-site59739
+      cancel-in-progress: false
+
+    # MonsterASP.NET "Visual Studio access" (WebDeploy) details; only the password is secret.
+    # site59739.siteasp.net is the deploy endpoint, not the public address of the website.
+    env:
+      WEBDEPLOY_SITE: site59739
+      WEBDEPLOY_URL: https://site59739.siteasp.net:8172/msdeploy.axd?site=site59739
+      WEBDEPLOY_USERNAME: site59739
+
+    steps:
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: ${{ runner.temp }}
+
+      - name: Unpack package
+        shell: pwsh
+        run: |
+          $release = "$env:RUNNER_TEMP\release"
+          New-Item -ItemType Directory -Force $release | Out-Null
+          & "$env:SystemRoot\System32\tar.exe" -xf "$env:RUNNER_TEMP\package.tar" -C $release
+          if ($LASTEXITCODE -ne 0) { throw "tar failed with exit code $LASTEXITCODE" }
+
+      - name: Deploy and verify
+        shell: pwsh
+        env:
+          WEBDEPLOY_PASSWORD: ${{ secrets.WEBDEPLOY_PASSWORD }}
+        run: |
+          if (-not $env:WEBDEPLOY_PASSWORD) { throw 'Repository secret WEBDEPLOY_PASSWORD is not set.' }
+          # A pasted secret often carries a trailing line break, which the server rejects as a wrong password
+          $password = $env:WEBDEPLOY_PASSWORD.Trim()
+          Write-Output "::add-mask::$password"
+          Write-Host "WEBDEPLOY_PASSWORD: $($password.Length) characters after trimming ($($env:WEBDEPLOY_PASSWORD.Length) as stored)"
+
+          $msdeploy = @(
+            "$env:ProgramFiles\IIS\Microsoft Web Deploy V3\msdeploy.exe",
+            "${env:ProgramFiles(x86)}\IIS\Microsoft Web Deploy V3\msdeploy.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $msdeploy) {
+            choco install webdeploy -y --no-progress
+            $msdeploy = "$env:ProgramFiles\IIS\Microsoft Web Deploy V3\msdeploy.exe"
+          }
+
+          $release = "$env:RUNNER_TEMP\release"
+          # Arguments go through an array so PowerShell passes each one to msdeploy unchanged
+          # (the password must not contain a comma or a double quote).
+          $connection = "computerName=$env:WEBDEPLOY_URL,userName=$env:WEBDEPLOY_USERNAME,password=$password,authType=Basic,includeAcls=False"
+
+          function Invoke-WebDeploy([string] $Source, [string] $Target, [string[]] $Rules = @()) {
+            $arguments = @(
+              '-verb:sync',
+              "-source:contentPath=$Source",
+              "-dest:contentPath=$Target,$connection",
+              '-allowUntrusted',
+              '-useChecksum',
+              '-disableLink:AppPoolExtension',
+              '-disableLink:ContentExtension',
+              '-disableLink:CertificateExtension',
+              '-retryAttempts:3',
+              '-retryInterval:5000'
+            ) + $Rules
+            $output = & $msdeploy @arguments
+            $code = $LASTEXITCODE
+            $output | Write-Host
+            if ($code -ne 0) { throw "msdeploy failed with exit code $code" }
+            return $output
+          }
+
+          # assets/ is mirrored exactly, so images and scripts removed from the repo leave the server too.
+          Invoke-WebDeploy "$release\assets" "$env:WEBDEPLOY_SITE/assets" | Out-Null
+
+          # Everything else uploads changed files only and never deletes anything on the server
+          # (.well-known holds the SSL certificate challenge, and must stay).
+          Invoke-WebDeploy $release $env:WEBDEPLOY_SITE @('-enableRule:DoNotDeleteRule') | Out-Null
+
+          # Compare again by checksum without changing anything: a good deploy leaves nothing to do.
+          $check = Invoke-WebDeploy $release $env:WEBDEPLOY_SITE @('-enableRule:DoNotDeleteRule', '-whatif')
+          $summary = $check | Where-Object { $_ -match 'Total changes: \d+' } | Select-Object -Last 1
+          if ($summary -notmatch 'Total changes: 0\b') { throw "Server does not match the package after deploying: $summary" }
+          Write-Host 'Verified: the server matches this commit.'
+
+      # Set the repository variable SITE_URL (e.g. https://www.example.com) to turn this check on.
+      - name: Check the live website
+        if: ${{ vars.SITE_URL != '' }}
+        shell: pwsh
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          $base = $env:SITE_URL.TrimEnd('/')
+          $page = Invoke-WebRequest "$base/" -UseBasicParsing -MaximumRetryCount 5 -RetryIntervalSec 6
+          if ($page.Content -notmatch 'Gener Magbanua') { throw "The home page at $base does not look like this site." }
+          $image = Invoke-WebRequest "$base/assets/img/portrait.webp" -UseBasicParsing -MaximumRetryCount 5 -RetryIntervalSec 6
+          if ($image.Headers['Content-Type'] -notmatch 'image/webp') { throw "portrait.webp came back as $($image.Headers['Content-Type'])." }
+          Write-Host "Live site is up at $base"

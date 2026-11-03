@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <system.webServer>
+    <rewrite>
+      <rules>
+        <!--<rule name="Mykey PH SSL" stopProcessing="true">
+          <match url="^(.*)$" />
+          <conditions>
+            <add input="{HTTP_HOST}" pattern="^mykeyenterprise-001-site1\.btempurl\.com$" />
+          </conditions>
+          <action type="Redirect" url="https:///{R:1}" redirectType="Permanent" />
+        </rule>
+        <rule name="Mykey PH" stopProcessing="true">
+          <match url="^(.*)$" />
+          <conditions>
+            <add input="{HTTP_HOST}" pattern="^mykey\.ph$" />
+          </conditions>
+          <action type="Redirect" url="https://mykey.ph/{R:1}" redirectType="Permanent" />
+        </rule>-->
+      </rules>
+    </rewrite>
+  </system.webServer>
+</configuration>
